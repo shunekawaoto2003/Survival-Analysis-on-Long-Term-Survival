@@ -1,0 +1,596 @@
+---
+title: "STAT 590 Project"
+output: html_document
+date: "2025-04-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(survival)
+# install.packages("survminer")
+library(survminer)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(corrplot)
+library(tidyverse)
+# install.packages("flexsurv")
+library(flexsurv)
+library(broom)
+
+```
+
+```{r}
+
+whas <- read_table2("whas.dat", col_names = FALSE)
+
+colnames(whas) <- c(
+  "id", "age", "sex", "cpk", "sho", "chf",
+  "miord", "mitype", "year", "yrgrp",
+  "lenstay", "dstat", "lenfol", "fstat"
+)
+
+whas <- whas[, 1:14]
+
+colnames(whas) <- c(
+  "id", "age", "sex", "cpk", "sho", "chf",
+  "miord", "mitype", "year", "yrgrp",
+  "lenstay", "dstat", "lenfol", "fstat"
+)
+
+
+whas <- whas %>%
+  mutate(
+    sex = factor(sex, levels = c(0,1), labels = c("Male", "Female")),
+    sho = factor(sho, levels = c(0,1), labels = c("No Shock", "Shock")),
+    chf = factor(chf, levels = c(0,1), labels = c("No CHF", "CHF")),
+    miord = factor(miord, levels = c(0,1), labels = c("First MI", "Recurrent MI")),
+    mitype = factor(mitype, levels = c(1,2,3), labels = c("Q-wave", "Not Q-wave", "Indeterminate"))
+  )
+
+```
+Missing Values
+```{r}
+missing_summary <- sapply(whas, function(x) sum(is.na(x)) / length(x) * 100)
+
+missing_summary
+
+```
+
+Summary Statistics
+```{r}
+
+summary(whas)
+
+whas %>%
+  summarise(
+    mean_age = mean(age, na.rm = TRUE),
+    sd_age = sd(age, na.rm = TRUE),
+    median_cpk = median(cpk, na.rm = TRUE),
+    mean_lenfol = mean(lenfol, na.rm = TRUE),
+    death_rate = mean(fstat, na.rm = TRUE)
+  )
+
+table(whas$sex)
+table(whas$sho)
+table(whas$chf)
+table(whas$miord)
+table(whas$mitype)
+
+```
+To check the survival curves between age groups and cpk groups (put them into groups) but later use them as continuous.
+Histograms
+```{r}
+# Age
+ggplot(whas, aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(title = "Age Distribution", x = "Age", y = "Count")
+
+# CPK
+ggplot(whas, aes(x = cpk)) +
+  geom_histogram(binwidth = 100, fill = "lightgreen", color = "black") +
+  theme_minimal() +
+  labs(title = "CPK Distribution", x = "CPK Level", y = "Count")
+
+# Follow-up Time
+ggplot(whas, aes(x = lenfol)) +
+  geom_histogram(binwidth = 100, fill = "lightcoral", color = "black") +
+  theme_minimal() +
+  labs(title = "Follow-up Time Distribution", x = "Days", y = "Count")
+
+
+
+```
+
+Bar Charts
+```{r}
+whas$sex <- factor(whas$sex, levels = c("Male", "Female"))
+whas$sho <- factor(whas$sho, levels = c("No Shock", "Shock"))
+whas$chf <- factor(whas$chf, levels = c("No CHF", "CHF"))
+whas$miord <- factor(whas$miord, levels = c("First MI", "Recurrent MI"))
+whas$mitype <- factor(whas$mitype, labels = c("Q-wave", "Not Q-wave", "Indeterminate"))
+
+# Bar Chart for SEX (Gender)
+ggplot(whas, aes(x = sex)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of Gender", x = "Gender", y = "Count")
+
+# Bar Chart for SHO (Cardiogenic Shock)
+# Not balanced, so survival curve will not be included
+ggplot(whas, aes(x = sho)) +
+  geom_bar(fill = "tomato", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of Cardiogenic Shock", x = "Shock Status", y = "Count")
+
+# Bar Chart for CHF (Heart Failure)
+ggplot(whas, aes(x = chf)) +
+  geom_bar(fill = "lightgreen", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of Congestive Heart Failure", x = "CHF Status", y = "Count")
+
+# Bar Chart for MIORD (MI Order)
+ggplot(whas, aes(x = miord)) +
+  geom_bar(fill = "orchid", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of MI Order", x = "MI Order", y = "Count")
+
+# Bar Chart for MITYPE (Type of MI)
+ggplot(whas, aes(x = mitype)) +
+  geom_bar(fill = "gold", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of MI Type", x = "MI Type", y = "Count")
+
+```
+Creating Categories for Age and CPK
+```{r}
+# Age
+whas$age_group <- cut(
+  whas$age,
+  breaks = c(0, 70, Inf),
+  right = FALSE,
+  labels = c("<70", "70+")
+)
+
+# CPK
+whas$cpk_group <- cut(
+  whas$cpk,
+  breaks = c(0, 300, 900, Inf),
+  right = FALSE,
+  labels = c("Low", "Moderate", "High")
+)
+
+# Merging Categories in Mitype
+levels(whas$mitype)
+# [1] "Q-wave" "Not Q-wave" "Indeterminate"
+# First convert to character to safely recode
+whas$mitype <- as.character(whas$mitype)
+
+# Merge "Indeterminate" into "Not Q-wave"
+whas$mitype[whas$mitype == "Indeterminate"] <- "Not Q-wave"
+
+# Convert back to factor
+whas$mitype <- factor(whas$mitype, levels = c("Q-wave", "Not Q-wave"))
+
+```
+mitype has very few in the "Indeterminate" category --> merge to "Not Q-wave"
+
+
+Replotting the New Variables 
+```{r}
+# Bar Chart for Age
+ggplot(whas, aes(x = age_group)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of Age Categories", x = "Age", y = "Count")
+
+# Bar Chart for CPK
+ggplot(whas, aes(x = cpk_group)) +
+  geom_bar(fill = "tomato", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of CPK Categories", x = "CPK", y = "Count")
+
+# Bar Chart for MITYPE (Type of MI)
+
+ggplot(whas, aes(x = mitype)) +
+  geom_bar(fill = "gold", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of MI Type", x = "MI Type", y = "Count")
+```
+
+Log Rank test to see which groups have significant survival differences.
+```{r}
+# Variables to test
+vars <- c("age_group", "sex", "cpk_group", "sho", "chf", "miord", "mitype")
+
+# Fit null model
+null_model <- coxph(Surv(lenfol, fstat) ~ 1, data = whas)
+null_loglik <- logLik(null_model)[1]
+null_neg2loglik <- -2 * null_loglik
+
+# Container for results
+lrt_results <- data.frame(
+  Variable = character(),
+  Neg2LogL = numeric(),
+  ChiSq = numeric(),
+  df = numeric(),
+  p_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each variable and compute test
+for (v in vars) {
+  formula <- as.formula(paste("Surv(lenfol, fstat) ~", v))
+  model <- coxph(formula, data = whas)
+  model_loglik <- logLik(model)[1]
+  model_neg2loglik <- -2 * model_loglik
+  
+  chisq <- 2 * (model_loglik - null_loglik)
+  df <- attr(logLik(model), "df") - attr(logLik(null_model), "df")
+  p <- pchisq(chisq, df = df, lower.tail = FALSE)
+  
+  lrt_results <- rbind(lrt_results, data.frame(
+    Variable = v,
+    Neg2LogL = round(model_neg2loglik, 3),
+    ChiSq = round(chisq, 3),
+    df = df,
+    p_value = signif(p, 3)
+  ))
+}
+
+# Add the null model row
+lrt_results <- rbind(
+  data.frame(Variable = "None", Neg2LogL = round(null_neg2loglik, 3), ChiSq = NA, df = NA, p_value = NA),
+  lrt_results
+)
+
+# View
+print(lrt_results)
+
+```
+* CPK and mitype are not significantly different in survival between their groups
+
+
+
+Kaplan Meier Survival Curves 
+```{r}
+surv_object <- Surv(time = whas$lenfol, event = whas$fstat)
+
+fit_overall <- survfit(surv_object ~ 1, data = whas)
+ggsurvplot(
+  fit_overall,
+  data = whas,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  xlab = "Days of Follow-Up",
+  ylab = "Survival Probability",
+  title = "Overall Survival Curve (WHAS Dataset)",
+  palette = c("#E7B800"),
+  ggtheme = theme_minimal(base_size = 14)
+)
+
+fit_age <- survfit(surv_object ~ age_group, data = whas)
+ggsurvplot(
+  fit_age,
+  data = whas,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  legend.labs = c("<70", "70+"),
+  xlab = "Days of Follow-Up",
+  ylab = "Survival Probability",
+  title = "Survival Curve between the <70 and 70+",
+  palette = c("#E7B800", "#2E9FDF"),
+  ggtheme = theme_minimal()
+)
+
+fit_sex <- survfit(surv_object ~ sex, data = whas)
+ggsurvplot(
+  fit_sex,
+  data = whas,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  legend.labs = c("Female", "Male"),
+  xlab = "Days of Follow-Up",
+  ylab = "Survival Probability",
+  title = "Survival Curve between the Male and Female",
+  palette = c("#E7B800", "#2E9FDF"),
+  ggtheme = theme_minimal()
+)
+
+
+fit_sho <- survfit(surv_object ~ sho, data = whas)
+ggsurvplot(
+  fit_sho,
+  data = whas,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  legend.labs = c("No Shock", "Shock"),
+  xlab = "Days of Follow-Up",
+  ylab = "Survival Probability",
+  title = "Survival Curve between the Shock and No Shock",
+  palette = c("#E7B800", "#2E9FDF"),
+  ggtheme = theme_minimal()
+)
+
+
+fit_chf <- survfit(surv_object ~ chf, data = whas)
+ggsurvplot(
+  fit_chf,
+  data = whas,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  legend.labs = c("No CHF", "CHF"),
+  xlab = "Days of Follow-Up",
+  ylab = "Survival Probability",
+  title = "Survival Curve between CHF and No CHF",
+  palette = c("#E7B800", "#2E9FDF"),
+  ggtheme = theme_minimal()
+)
+
+
+fit_miord <- survfit(surv_object ~ miord, data = whas)
+ggsurvplot(
+  fit_miord,
+  data = whas,
+  risk.table = TRUE,
+  surv.median.line = "hv",
+  legend.labs = c("First MI", "Recurrent MI"),
+  xlab = "Days of Follow-Up",
+  ylab = "Survival Probability",
+  title = "Survival Curve between First MI and Recurrent MI",
+  palette = c("#E7B800", "#2E9FDF"),
+  ggtheme = theme_minimal()
+)
+
+
+```
+
+
+
+
+Checking the Cox PH Model Assumption (if the log(-log(survival)) are parallel then assumption is satisfied)
+```{r}
+# By sho
+fit_sho <- survfit(Surv(lenfol, fstat) ~ sho, data = whas)
+ggsurvplot(
+  fit_sho,
+  fun = "cloglog", 
+  title = "log(-log(Survival)) Plot by Shock Status",
+  xlab = "Time (days)",
+  ylab = "log(-log(Survival))",
+  risk.table = FALSE,
+  legend.labs = c("No Shock", "Shock")
+)
+
+# By CHF
+fit_chf <- survfit(Surv(lenfol, fstat) ~ chf, data = whas)
+ggsurvplot(
+  fit_chf, 
+  fun = "cloglog", 
+  title = "log(-log(Survival)) Plot by CHF Status",
+  xlab = "Time (days)",
+  ylab = "log(-log(Survival))",
+  risk.table = FALSE,
+  legend.labs = c("No CHF", "CHF")
+)
+
+# By MI Order
+fit_miord <- survfit(Surv(lenfol, fstat) ~ miord, data = whas)
+ggsurvplot(
+  fit_mitype, 
+  fun = "cloglog", 
+  title = "log(-log(Survival)) Plot by MI Order",
+  xlab = "Time (days)",
+  ylab = "log(-log(Survival))",
+  risk.table = FALSE,
+  legend.labs = c("First MI", "Recurrent MI")
+)
+
+# By Age Group
+fit_age <- survfit(Surv(lenfol, fstat) ~ age_group, data = whas)
+ggsurvplot(
+  fit_age, 
+  fun = "cloglog", 
+  title = "log(-log(Survival)) Plot by Age Group",
+  xlab = "Time (days)",
+  ylab = "log(-log(Survival))",
+  risk.table = FALSE,
+  legend.labs = c("<70", "70+")
+)
+
+# By Sex
+fit_age <- survfit(Surv(lenfol, fstat) ~ sex, data = whas)
+ggsurvplot(
+  fit_age, 
+  fun = "cloglog", 
+  title = "log(-log(Survival)) Plot by Sex",
+  xlab = "Time (days)",
+  ylab = "log(-log(Survival))",
+  risk.table = FALSE,
+  legend.labs = c("Female", "Male")
+)
+
+```
+Everything except miord meets assumptions, now run Cox PH Models and do Variable Selection
+
+Variable Selection
+```{r}
+vars <- c("age", "sex", "sho", "chf")
+
+model_results <- list()
+counter <- 1
+
+null_model <- coxph(Surv(lenfol, fstat) ~ 1, data = whas)
+model_results[[counter]] <- list(
+  model = "Intercept Only",
+  n_vars = 0,
+  logLik = logLik(null_model)[1],
+  neg2logLik = -2 * logLik(null_model)[1],
+  AIC = AIC(null_model)
+)
+counter <- counter + 1
+
+for (i in 1:length(vars)) {
+  combos <- combn(vars, i, simplify = FALSE)
+  for (combo in combos) {
+    # Build formula
+    formula <- as.formula(paste("Surv(lenfol, fstat) ~", paste(combo, collapse = " + ")))
+    
+    # Fit Cox model
+    fit <- coxph(formula, data = whas)
+    
+    # Save model info
+    model_results[[counter]] <- list(
+      model = paste(combo, collapse = " + "),
+      n_vars = length(combo),
+      logLik = logLik(fit)[1],
+      neg2logLik = -2 * logLik(fit)[1],
+      AIC = AIC(fit)
+    )
+    counter <- counter + 1
+  }
+}
+
+model_table <- do.call(rbind, lapply(model_results, as.data.frame))
+model_table <- model_table %>% arrange(n_vars, neg2logLik)
+model_table
+
+# Stepwise selection based on -2LL improvement
+stepwise_ll_select <- function(data, time, status, candidates, threshold = 3.84) {
+  selected <- c()         # Final selected variables
+  remaining <- candidates # Variables to consider
+  
+  # Start with null model
+  null_model <- coxph(as.formula(paste("Surv(", time, ",", status, ") ~ 1")), data = data)
+  base_ll <- logLik(null_model)[1]
+  base_formula <- "1"
+  
+  cat("Starting Stepwise Selection\n")
+  cat("---------------------------------\n")
+  cat("Base model: Surv(", time, ",", status, ") ~ 1\n")
+  cat("LogLik:", round(base_ll, 3), "\n\n")
+  
+  while (length(remaining) > 0) {
+    best_var <- NULL
+    best_ll <- base_ll
+    best_chisq <- 0
+    best_model <- NULL
+    
+    for (var in remaining) {
+      test_formula <- as.formula(paste("Surv(", time, ",", status, ") ~", paste(c(selected, var), collapse = " + ")))
+      test_model <- coxph(test_formula, data = data)
+      test_ll <- logLik(test_model)[1]
+      chisq <- 2 * (test_ll - base_ll)
+      
+      if (chisq > best_chisq) {
+        best_var <- var
+        best_ll <- test_ll
+        best_chisq <- chisq
+        best_model <- test_model
+      }
+    }
+    
+    if (!is.null(best_var) && best_chisq >= threshold) {
+      cat("Adding:", best_var, "| Chi-square:", round(best_chisq, 3), "\n")
+      selected <- c(selected, best_var)
+      remaining <- setdiff(remaining, best_var)
+      base_ll <- best_ll
+    } else {
+      cat("No remaining variable exceeds chi-square threshold. Stopping.\n")
+      break
+    }
+  }
+  
+  final_formula <- as.formula(paste("Surv(", time, ",", status, ") ~", paste(selected, collapse = " + ")))
+  final_model <- coxph(final_formula, data = data)
+  
+  cat("\nFinal model:\n")
+  print(final_model$call)
+  
+  return(list(model = final_model, variables = selected))
+}
+
+# Run stepwise selection using -2LL and chi-square > 3.84
+result <- stepwise_ll_select(data = whas,
+                              time = "lenfol",
+                              status = "fstat",
+                              candidates = vars,
+                              threshold = 3.84)
+
+summary(result$model)
+
+-2 * logLik(result$model)[1]
+
+```
+age + sho + chf has the lowest AIC
+
+
+AFT Models
+```{r}
+tidy_cox <- broom::tidy(result$model, exponentiate = TRUE, conf.int = TRUE) %>%
+  rename(
+    Variable = term,
+    HR = estimate,
+    HR_lower = conf.low,
+    HR_upper = conf.high,
+    p_value_cox = p.value
+  ) %>%
+  select(Variable, HR, HR_lower, HR_upper, p_value_cox) %>%
+  mutate(across(where(is.numeric), ~ round(., 3)))
+
+
+
+weibull_model <- survreg(Surv(lenfol, fstat) ~ age + sho + chf, data = whas, dist = "weibull")
+
+exp_model <- survreg(Surv(lenfol, fstat) ~ age + sho + chf, data = whas, dist = "exponential")
+
+gen_gamma_model <- flexsurvreg(Surv(lenfol, fstat) ~ age + sho + chf, data = whas, dist = "gengamma")
+
+# Use Likelihood Ratio Test to compare the best 
+lrt_weibull_vs_exp <- 2 * (logLik(weibull_model)[1] - logLik(exp_model)[1])
+lrt_gamma_vs_weibull <- 2 * (logLik(gen_gamma_model)[1] - logLik(weibull_model)[1])
+lrt_gamma_vs_exp <- 2 * (logLik(gen_gamma_model)[1] - logLik(exp_model)[1])
+
+lrt_table <- data.frame(
+  Comparison = c("Weibull vs Exponential", 
+                 "Generalized Gamma vs Weibull", 
+                 "Generalized Gamma vs Exponential"),
+  LRT_Statistic = c(lrt_weibull_vs_exp, 
+                    lrt_gamma_vs_weibull, 
+                    lrt_gamma_vs_exp),
+  df = c(1, 1, 2),
+  p_value = c(
+    pchisq(lrt_weibull_vs_exp, df = 1, lower.tail = FALSE),
+    pchisq(lrt_gamma_vs_weibull, df = 1, lower.tail = FALSE),
+    pchisq(lrt_gamma_vs_exp, df = 2, lower.tail = FALSE)
+  )
+)
+
+lrt_table
+
+# Chi squared values are all really small --> we go with the inner most nested model --> g_gamma
+
+tidy_aft <- broom::tidy(gen_gamma_model, exponentiate = TRUE, conf.int = TRUE) %>%
+  filter(term != "(Intercept)") %>%
+  rename(
+    Variable = term,
+    Time_Ratio = estimate,
+    TR_lower = conf.low,
+    TR_upper = conf.high,
+    p_value_aft = p.value
+  ) %>%
+  select(Variable, Time_Ratio, TR_lower, TR_upper, p_value_aft) %>%
+  mutate(across(where(is.numeric), ~ round(., 3)))
+
+
+comparison_cox_exp <- left_join(tidy_cox, tidy_aft, by = "Variable")
+
+comparison_cox_exp
+
+```
+Generalized Gamma is best among AFT models
