@@ -13,7 +13,7 @@ Cardiogenic Shock (sho): Patients who experienced cardiogenic shock had a signif
 
 Congestive Heart Failure (CHF): The presence of CHF was linked to an 82.5% higher risk of death and a 40.3% reduction in survival time.
 
-Methodology
+# Methodology
 
 Data Pre-processing: The WHAS dataset, which includes demographic, clinical, and follow-up data, was pre-processed. Continuous variables like age and creatine phosphokinase (cpk) were converted into discrete categories to improve model interpretability.
 
@@ -21,9 +21,7 @@ Data Pre-processing: The WHAS dataset, which includes demographic, clinical, and
 Exploratory Analysis: Histograms and frequency tables were used to examine the distribution of variables.
 
 
-Variable Selection: Individual log-rank tests were performed to identify significant univariate predictors. Variables such as 
-
-cpk and mitype were excluded from further analysis because they were not found to be statistically significant.
+Variable Selection: Individual log-rank tests were performed to identify significant univariate predictors. Variables such as cpk and mitype were excluded from further analysis because they were not found to be statistically significant.
 
 Cox Proportional Hazards (Cox PH) Model:
 
