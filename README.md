@@ -14,7 +14,7 @@ The analysis, which used both Cox proportional hazards and accelerated failure t
 
 1.  **Data Pre-processing**: The WHAS dataset, which includes demographic, clinical, and follow-up data, was pre-processed. Continuous variables like age and creatine phosphokinase (cpk) were converted into discrete categories to improve model interpretability.
 2.  **Exploratory Analysis**: Histograms and frequency tables were used to examine the distribution of variables.
-3.  **Variable Selection**: Individual log-rank tests were performed to identify significant univariate predictors. Variables such as `cpk` and `mitype` were excluded from further analysis because their p-values were greater than alpha =0 .05.
+3.  **Variable Selection**: Individual log-rank tests were performed to identify significant univariate predictors. Variables such as `cpk` and `mitype` were excluded from further analysis because their p-values were greater than alpha = 0.05.
 4.  **Cox Proportional Hazards (Cox PH) Model**:
     * Variable selection was performed using best-subset and forward stepwise selection.
     * The final model included age, cardiogenic shock (`sho`), and congestive heart failure (`chf`).
